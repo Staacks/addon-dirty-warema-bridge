@@ -5,10 +5,10 @@
   "description": "Control your Warema WMS system",
   "arch": ["aarch64", "amd64", "armv7", "i386"],
   "startup": "services",
-  "url": "https://github.com/giannello/addon-warema-bridge",
+  "url": "https://github.com/Staacks/addon-dirty-warema-bridge",
   "boot": "auto",
   "hassio_api": true,
-  "image": "giannello/addon-warema-bridge",
+  "image": "staacks/addon-warema-bridge",
   "options": {
     "wms_serial_port": null
   },

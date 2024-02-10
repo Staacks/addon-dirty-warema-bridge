@@ -1,4 +1,4 @@
-const warema = require('warema-wms-venetian-blinds');
+const warema = require('./warema-wms-custom/index.js');
 var mqtt = require('mqtt')
 
 process.on('SIGINT', function() {
@@ -67,17 +67,17 @@ function registerDevice(element) {
         position_closed: 100,
         command_topic: 'warema/' + element.snr + '/set',
         position_topic: 'warema/' + element.snr + '/position',
-        tilt_status_topic: 'warema/' + element.snr + '/tilt',
+        valance_status_topic: 'warema/' + element.snr + '/valance',
         set_position_topic: 'warema/' + element.snr + '/set_position',
-        tilt_command_topic: 'warema/' + element.snr + '/set_tilt',
-        tilt_closed_value: -100,
-        tilt_opened_value: 100,
-        tilt_min: -100,
-        tilt_max: 100,
+        valance_command_topic: 'warema/' + element.snr + '/set_valance',
+        valance_closed_value: 0,
+        valance_opened_value: 100,
+        valance_min: 0,
+        valance_max: 100,
       }
       break
-    case 21:
-      model = 'Actuator UP'
+    case 25:
+      model = 'Marquee'
       payload = {
         ...base_payload,
         device: {
@@ -88,17 +88,11 @@ function registerDevice(element) {
         position_closed: 100,
         command_topic: 'warema/' + element.snr + '/set',
         position_topic: 'warema/' + element.snr + '/position',
-        tilt_status_topic: 'warema/' + element.snr + '/tilt',
         set_position_topic: 'warema/' + element.snr + '/set_position',
-        tilt_command_topic: 'warema/' + element.snr + '/set_tilt',
-        tilt_closed_value: -100,
-        tilt_opened_value: 100,
-        tilt_min: -100,
-        tilt_max: 100,
       }
       break
-    case 25:
-      model = 'Vertical awning'
+    case 28:
+      model = 'Light'
       payload = {
         ...base_payload,
         device: {
@@ -197,10 +191,10 @@ function callback(err, msg) {
         break
       case 'wms-vb-blind-position-update':
         client.publish('warema/' + msg.payload.snr + '/position', msg.payload.position.toString())
-        client.publish('warema/' + msg.payload.snr + '/tilt', msg.payload.angle.toString())
+        client.publish('warema/' + msg.payload.snr + '/valance', msg.payload.valance.toString())
         shade_position[msg.payload.snr] = {
           position: msg.payload.position,
-          angle: msg.payload.angle
+          valance: msg.payload.valance
         }
         break
       case 'wms-vb-scanned-devices':
@@ -255,22 +249,30 @@ client.on('message', function (topic, message) {
     switch (command) {
       case 'set':
         switch (message.toString()) {
-          case 'CLOSE':
-            stickUsb.vnBlindSetPosition(device, 100)
-            break;
-          case 'OPEN':
-            stickUsb.vnBlindSetPosition(device, 0)
-            break;
           case 'STOP':
             stickUsb.vnBlindStop(device)
             break;
         }
         break
       case 'set_position':
-        stickUsb.vnBlindSetPosition(device, parseInt(message), parseInt(shade_position[device]['angle']))
+        switch (message.toString()) {
+          case 'STOP':
+            stickUsb.vnBlindStop(device)
+            break;
+          default:
+            stickUsb.vnBlindSetPosition(device, parseInt(message), 0)
+            break;
+        }
         break
-      case 'set_tilt':
-        stickUsb.vnBlindSetPosition(device, parseInt(shade_position[device]['position']), parseInt(message))
+      case 'set_valance':
+        switch (message.toString()) {
+          case 'STOP':
+            stickUsb.vnBlindStop(device)
+            break;
+          default:
+            stickUsb.vnBlindSetPosition(device, 100, parseInt(message))
+            break;
+        }
         break
       //default:
       //  console.log('Unrecognised command from HA')
