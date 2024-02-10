@@ -8,7 +8,7 @@
   "url": "https://github.com/Staacks/addon-dirty-warema-bridge",
   "boot": "auto",
   "hassio_api": true,
-  "image": "staacks/addon-dirty-warema-bridge",
+  "image": "diconx/addon-dirty-warema-bridge",
   "options": {
     "wms_serial_port": null
   },
