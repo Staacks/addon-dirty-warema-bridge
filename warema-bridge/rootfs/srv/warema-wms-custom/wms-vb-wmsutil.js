@@ -91,8 +91,8 @@ function wmsMsgNew( cmd, snr, params ){
 		this.onEnd    = undefined;
 
 		switch( cmd ){
-			case "blindGetPos"   : this.timeout =  500; this.delayAfter = 100; this.retry = -1; break;
-			case "blindMoveToPos": this.timeout =  500; this.delayAfter = 300; this.retry = -1; break;
+			case "blindGetPos"   : this.timeout =  500; this.delayAfter = 100; this.retry = 5; break;
+			case "blindMoveToPos": this.timeout =  500; this.delayAfter = 300; this.retry = 3; break;
 			case "blindStopMove" : this.timeout =  200; this.delayAfter =   5; this.retry = 3; break;
 			case "waveRequest"   : this.timeout =  500; this.delayAfter = 300; break;
 			case "scanRequest"   : this.timeout =  750; break;
@@ -121,13 +121,13 @@ function encodeCmd( cmd, snr, params ){
 				log.E( "wmsUtil: blindMoveToPos: pos undefined. Assuming 0." );
 				params.pos = 0;
 			}
-			if( params.valance === undefined ){
+			if( params.val === undefined ){
 				log.E( "wmsUtil: blindMoveToPos: val undefined. Assuming 0." );
-				params.valance = 0;
+				params.val = 0;
 			}
 			ret.expect.msgType = "blindMoveToPosResponse";
 			ret.expect.snr = snrHex;
-			ret.cmd = '{R06' + snrHex + '7070' + '03' + wmsPosPercentToHex( params.pos ) + 'FF' + wmsPosPercentToHex( params.valance ) + 'FF}'; //no idea how valance works
+			ret.cmd = '{R06' + snrHex + '7070' + '03' + wmsPosPercentToHex( params.pos ) + 'FF' + wmsPosPercentToHex( params.val ) + 'FF}'; //no idea how valance works
 			break;
 		case "blindStopMove":
 			ret.cmd = '{R06' + snrHex + "7070" + "01" + "FF" + "FF" + "FFFFFF}";
@@ -227,8 +227,9 @@ function decodeStickCmd( rcv ){
 						msgType = "position";
 						params.position = wmsPosHexToPercent( payload.substr(8, 2) );
 						params.angle = wmsAngleHexToPercent( payload.substr(10, 2) );
-						params.valance = wmsPosHexToPercent(payload.substr(12, 2));
+						params.valance_1 = wmsPosHexToPercent(payload.substr(12, 2));
 						params.valance_2 = wmsPosHexToPercent(payload.substr(14, 2));
+						params.moving = !(payload.substr(16, 2) === '00');
 						break;
 					case '0C000006': //auto modes & limits
 						params.type = 'autoSettings';
@@ -249,7 +250,7 @@ function decodeStickCmd( rcv ){
 				params.unknown1 = payload.substr(0, 10);
 				params.prevPosition = wmsPosHexToPercent( payload.substr(10, 2) );
 				params.prevAngle = wmsAngleHexToPercent( payload.substr(12, 2) );
-				params.prevValance = wmsPosHexToPercent(payload.substr(14, 2));
+				params.prevValance_1 = wmsPosHexToPercent(payload.substr(14, 2));
 				params.prevValance_2 = wmsPosHexToPercent(payload.substr(16, 2));
 				params.unknown2 = payload.substr(18, 8);
 				break;
@@ -315,6 +316,7 @@ function decodeStickCmd( rcv ){
 					case '07': params.deviceTypeStr = 'Remote control(+)'; break;
 					case '20': params.deviceTypeStr = 'Actuator UP      '; break;
 					case '21': params.deviceTypeStr = 'Plug receiver    '; break;
+					case '25': params.deviceTypeStr = 'Radio motor      '; break;
 					case '63': params.deviceTypeStr = 'Web control      '; break;
 				}
 				break;
@@ -326,7 +328,7 @@ function decodeStickCmd( rcv ){
 				params.unknown = payload.substr(0, 2);
 				params.position = wmsPosHexToPercent( payload.substr(2, 2) );
 				params.angle = wmsAngleHexToPercent (payload.substr(4, 2) );
-				params.valance = wmsPosHexToPercent(payload.substr(6, 2));
+				params.valance_1 = wmsPosHexToPercent(payload.substr(6, 2));
 				params.valance_2 = wmsPosHexToPercent(payload.substr(8, 2));
 				break;
 			case '8010':

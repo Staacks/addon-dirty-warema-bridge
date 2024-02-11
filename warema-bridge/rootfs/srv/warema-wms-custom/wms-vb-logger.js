@@ -226,7 +226,6 @@ function doLog( level, text ){
 					
 					if( ( filename === logFiles[idxLogFile].filnamePrevious ) ||
 							( logFileInitial === logFiles[idxLogFile].filnamePrevious ) ){
-						console.log( "--- XXX Log Append" );
 						fs.appendFile( filename, logText+'\n', 'utf8', (err) => {
 								if (err){
 									console.log( "Error "+err+" appendig log to "+filename+": "+logText );
@@ -234,7 +233,6 @@ function doLog( level, text ){
 							});
 					}
 					else{
-						console.log( "/// XXX Rewrite" );
 						fs.writeFile( filename, logText+'\n', 'utf8', (err) => {
 								if (err){
 									console.log( "Error "+err+" writing log "+filename+": "+logText );

@@ -1,9 +1,10 @@
 //--------------------------------------------------------------------------------------------------
 //
+//
 //--------------------------------------------------------------------------------------------------
 
 const wmsUtil      = require('./wms-vb-wmsutil.js')
-const DELAY_MSG_PROC = 10;
+const DELAY_MSG_PROC = 5;
 
 const defaultSettings = Object.freeze({
   autoOpen: true
@@ -50,6 +51,25 @@ function privateCmdQueueRemove( stickObj, msgType, snr ){
 		}
 	}
 	return countRemoved;
+}
+
+//--------------------------------------------------------------------------------------------------
+function privateCmdQueueHasMsg( stickObj, msgType, snr ){
+	var hasMsg = false;
+	var i = 0;
+	log.T( "privateCmdQueueHasMsg "+msgType+" "+snr+" ?" );
+	while( ( i < stickObj.wmsMsgQueue.length ) && hasMsg===false ){
+		if( ( ( stickObj.wmsMsgQueue[i].msgType === msgType ) ||( !(msgType) ) ) && 
+				( ( stickObj.wmsMsgQueue[i].snr === snr ) || ( snr = "000000" ) || ( !(snr) ) ) ){
+			log.T( "privateCmdQueueHasMsg ["+i+"] "+stickObj.wmsMsgQueue[i].msgType+" "+stickObj.wmsMsgQueue[i].snr );
+			hasMsg = true;
+		}
+		else
+		{
+			i++;
+		}
+	}
+	return hasMsg;
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -304,7 +324,7 @@ function privateFinishScannedDevices( stickObj, options ){
 			
 			stickObj.vnBlinds = [];
 			stickObj.scannedDevArray.forEach( function (device, index) { 
-					if( ( device.type === '20' ) || ( device.type === '21' ) ){
+					if( ( device.type === '20' ) || ( device.type === '21' ) || ( device.type === '25' ) ){
 						stickObj.vnBlindAdd( device.snr, device.typeStr.trim()+" "+device.snr+" ("+device.snrHex+")" );
 						log.I( stickObj.name+"   Added "+device.typeStr.trim()+" "+device.snr+" ("+device.snrHex+")" );
 					}
@@ -332,7 +352,7 @@ function privateUpdateBlindPosWithCallback( blind, newPos, callbackFct, optionsP
 		if( callbackFct ){
 			callbackFct( null/*err*/, { topic: "wms-vb-blind-position-update", 
 				payload: { snr: blind.snr, snrHex: blind.snrHex, name: blind.name, 
-			position:blind.posCurrent.pos, valance:blind.posCurrent.valance } } );
+				position:blind.posCurrent.pos, valance:blind.posCurrent.val, moving:blind.posCurrent.moving } } );
 		}
 	}
 }
@@ -380,34 +400,36 @@ function privateCopyWmsStatistics( objTo, objFrom ){
 
 //--------------------------------------------------------------------------------------------------
 class VnBlindPos{
-  constructor( pos, valance ){
+  constructor( pos, val, moving ){
 		this.pos = NaN;
-		this.valance = NaN;
+		this.val = NaN;
+		this.moving = false;
 
 		if( typeof pos === "object" )
 		{
 			this.pos = parseInt( pos.pos );
-			this.valance = parseInt( pos.valance );
+			this.val = parseInt( pos.val );
+			this.moving = !!pos.moving; // !! converts anything to Boolean
 		}
 		else
 		{
 			this.pos = parseInt( pos );
-			this.valance = parseInt( valance );
+			this.val = parseInt( val );
+			this.moving = !!moving; // !! converts anything to Boolean
 		}
 	
-	
-		if( (this.pos === NaN ) || ( this.valance === NaN ) ){
-		
-			throw "VnBlindPos: Constructor has to evaluate to VnBlindPos( <number>, <number> ) or VnBlindPos( { pos:<number>, valance:<number> } ).";
+		if( (this.pos === NaN ) || ( this.val === NaN ) ){
+			throw "VnBlindPos: Constructor has to evaluate to VnBlindPos( <number pos>, <number val>, <boolean moving> ) or VnBlindPos( { pos:<number>, val:<number>, moving:<boolean> } ).";
 		}
+
 	}
 	
-	equals( pos, valance ){
+	equals( pos, val, moving ){
 		if( (typeof pos) === "number" ){
-			ret = ( ( this.pos === pos ) && ( this.valance === valance ) );
+			ret = ( ( this.pos === pos ) && ( this.val === val ) && (this.moving === moving) );
 		}
 		else if( (typeof pos.pos) === "number" ){
-			ret = ( ( this.pos === pos.pos ) && ( this.valance === pos.valance ) );
+			ret = ( ( this.pos === pos.pos ) && ( this.val === pos.val ) && ( this.moving === pos.moving ) );
 		}
 		return ret;
 	}
@@ -451,8 +473,12 @@ class WmsVbStick {
 		this.startupTs = new Date();
 		this.scannedDevUniqueObj = {};
 		this.scannedDevArray = [];
-		this.posUpdInterval = undefined;
+		this.posUpdIntervalTimer = undefined;
 		this.posUpdIntervalMsec = 0;
+		this.watchMovingIntervalTimer = undefined;
+		this.watchMovingIntervalMsec = 0;
+		this.enableCmdConfirmationNotification = false
+		// this.setWatchMovingInterval( 200 );
 
 		privateInitWmsStatistics( this );
 
@@ -659,8 +685,8 @@ class WmsVbStick {
 		blind.snr = snr;
 		blind.snrHex = wmsUtil.snrNumToHex( snr );
 		blind.name = name;
-		blind.posRequested = new VnBlindPos( 0, 0 );
-		blind.posCurrent = new VnBlindPos( -1, 0 );
+		blind.posRequested = new VnBlindPos( 0, 0, false/*moving*/ );
+		blind.posCurrent = new VnBlindPos( -1, 0, false/*moving*/ );
 		blind.creationTs = new Date();
 		privateInitWmsStatistics( blind );
 
@@ -736,14 +762,50 @@ class WmsVbStick {
 		log.T( "getStatus()" );
 		var stickObj = this;
 		var ret = { name              :stickObj.name,
-								startupTs         :stickObj.startupTs,
-								status            :stickObj.status,
-								posUpdIntervalMsec:stickObj.posUpdIntervalMsec
-							};
+					startupTs         :stickObj.startupTs,
+					status            :stickObj.status,
+					posUpdIntervalMsec:stickObj.posUpdIntervalMsec
+				};
 		privateCopyWmsStatistics( ret, stickObj );
 
 		return ret;
 	};
+
+	// ~ ~ method ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ 
+	setWatchMovingBlindsInterval( intervalMsec ){
+		log.T( "setWatchMovingInterval( intervalMsec: "+intervalMsec+" )" );
+		var stickObj = this;
+
+		// . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+		function doWatchMovingBlinds(){
+			log.T( "doWatchMovingBlinds()" );
+			for( var i = 0; i < stickObj.vnBlinds.length; i++ ){
+				if( stickObj.vnBlinds[i].posCurrent.moving && 
+					(!privateCmdQueueHasMsg( stickObj, "blindGetPos", stickObj.vnBlinds[i].snr ) ) ){
+					stickObj.vnBlindGetPosition( stickObj.vnBlinds[i].snr, { cmdConfirmation:false, callbackOnUnchangedPos:false } );
+				}
+			}
+		}
+		// . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+		
+		// Clear prevoius position update interval
+		if( stickObj.watchMovingIntervalTimer ){
+			clearInterval( stickObj.watchMovingIntervalTimer );
+			stickObj.watchMovingIntervalTimer = undefined;
+			stickObj.watchMovingIntervalMsec = 0;
+		}
+
+		// Setup cyclic position update
+		if( intervalMsec >= 100 ){
+			doWatchMovingBlinds(); // Execute once immediateliy
+			stickObj.watchMovingIntervalTimer = setInterval( doWatchMovingBlinds, intervalMsec ); // Execute in interval
+			stickObj.watchMovingIntervalMsec = intervalMsec;
+			log.I( "Interval for watching moving blinds: "+(intervalMsec)+" ms." );
+		}
+		else{
+			log.I( "Interval for watching moving blinds: cleared." );
+		}
+	}
 
 	// ~ ~ method ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ 
 	setPosUpdInterval( intervalMsec ){
@@ -759,15 +821,17 @@ class WmsVbStick {
 		}
 		// . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
 		
-		if( stickObj.posUpdInterval ){
-			clearInterval( stickObj.posUpdInterval );
-			stickObj.posUpdInterval = undefined;
+		// Clear prevoius position update interval
+		if( stickObj.posUpdIntervalTimer ){
+			clearInterval( stickObj.posUpdIntervalTimer );
+			stickObj.posUpdIntervalTimer = undefined;
 			stickObj.posUpdIntervalMsec = 0;
 		}
-		
+
+		// Setup cyclic position update
 		if( intervalMsec >= 5000 ){
 			doPosUpdInterval(); // Execute once immediateliy
-			stickObj.posUpdInterval = setInterval( doPosUpdInterval, intervalMsec ); // Execute in interval
+			stickObj.posUpdIntervalTimer = setInterval( doPosUpdInterval, intervalMsec ); // Execute in interval
 			stickObj.posUpdIntervalMsec = intervalMsec;
 			log.I( "Interval for position update: "+(intervalMsec/1000)+" seconds." );
 		}
@@ -777,6 +841,11 @@ class WmsVbStick {
 	}
 
 	// ~ ~ method ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ 
+	setCmdConfirmationNotificationEnabled( enabled ){
+		this.enableCmdConfirmationNotification = !! enabled
+	}
+
+		// ~ ~ method ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ 
 	vnBlindSetPosition( id, position, valance ){
 		log.T( "vnBlindSetPosition( ("+(typeof id)+") \""+id+"\", "+position+", "+valance+" )" );
 		var stickObj = this;
@@ -786,19 +855,21 @@ class WmsVbStick {
 		function vnBlindSetPositionCompletion( error, wmsMsgSend, wmsMsgRcv ){
 			privateHandleWmsCompletionGeneric( error, wmsMsgSend, wmsMsgRcv );
 	
-			stickObj.callback( error, { topic: "wms-vb-cmd-result-set-position", payload: { error:error, 
-				snr: blind.snr, snrHex: blind.snrHex, name: blind.name, 
-				position:blind.posRequested.pos, valance:blind.posRequested.valance } } );
+			if( this.enableCmdConfirmationNotification ){
+				stickObj.callback( error, { topic: "wms-vb-cmd-result-set-position", payload: { error:error, 
+					snr: blind.snr, snrHex: blind.snrHex, name: blind.name, 
+					position:blind.posRequested.pos, valance:blind.posRequested.val } } );
+			}
 
 			if( !error ){
-				privateUpdateBlindPosWithCallback( blind, blind.posRequested, stickObj.callback );
+				privateUpdateBlindPosWithCallback( blind, new VnBlindPos( blind.posCurrent.pos, blind.posCurrent.val, true/*moving*/ ), stickObj.callback );
 			}
 		}
 		// . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
 
 		if( blind ){
-			blind.posRequested = new VnBlindPos( position, valance );
-			privateCmdQueueEnqueue( stickObj, new wmsUtil.wmsMsgNew( "blindMoveToPos", blind.snr, {  pos:position, valance:valance } ), vnBlindSetPositionCompletion );
+			blind.posRequested = new VnBlindPos( position, valance, true/*moving*/ );
+			privateCmdQueueEnqueue( stickObj, new wmsUtil.wmsMsgNew( "blindMoveToPos", blind.snr, {  pos:position, val:valance } ), vnBlindSetPositionCompletion );
 			setTimeout( function() { privateCmdQueueProcess(stickObj); }, DELAY_MSG_PROC );
 		}
 		else{
@@ -818,12 +889,15 @@ class WmsVbStick {
 		function vnBlindGetPositionCompletion( error, wmsMsgSend, wmsMsgRcv ){
 			privateHandleWmsCompletionGeneric( error, wmsMsgSend, wmsMsgRcv );
 	
-			if( options.cmdConfirmation ){
+			if( this.enableCmdConfirmationNotification && options.cmdConfirmation ){
 				stickObj.callback( error, { topic: "wms-vb-cmd-result-get-position", payload: { error:error, 
 					snr: blind.snr, snrHex: blind.snrHex, name: blind.name } } );
 			}
 			if( !error ){
-				privateUpdateBlindPosWithCallback( blind, new VnBlindPos( wmsMsgRcv.params.position, wmsMsgRcv.params.valance ), stickObj.callback, options );
+				privateUpdateBlindPosWithCallback( 
+					blind,
+					new VnBlindPos( wmsMsgRcv.params.position, wmsMsgRcv.params.valance, wmsMsgRcv.params.moving ), 
+					stickObj.callback, options );
 			}
 		}
 		// . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
@@ -849,13 +923,19 @@ class WmsVbStick {
 	}
 
 	// ~ ~ method ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ 
-	vnBlindStop( id ){
-		log.T( "vnBlindStop( ("+(typeof id)+") \""+id+"\" )" );
+	vnBlindStop( id, getPosOnStop=true ){
+		log.T( "vnBlindStop( ("+(typeof id)+") \""+id+"\" "+getPosOnStop+")" );
 		var stickObj = this;
 				
 		if( !id ){
+			// first enqueue all stop commands then all the getPos commands
 			for( var i = 0; i < stickObj.vnBlinds.length; i++ ){
-				stickObj.vnBlindStop( stickObj.vnBlinds[i].snr );
+				stickObj.vnBlindStop( stickObj.vnBlinds[i].snr, false/*getPosOnStop*/ );
+			}
+			if( getPosOnStop ){
+				for( var i = 0; i < stickObj.vnBlinds.length; i++ ){
+					stickObj.vnBlindGetPosition( stickObj.vnBlinds[i].snr );
+				}
 			}
 		}
 		else
@@ -865,17 +945,23 @@ class WmsVbStick {
 			// . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
 			function vnBlindStopCompletion( error, wmsMsgSend, wmsMsgRcv ){
 				privateHandleWmsCompletionGeneric( error, wmsMsgSend, wmsMsgRcv );
-		
-				stickObj.callback( error, { topic: "wms-vb-cmd-result-stop", payload: { error:error, snr: blind.snr, snrHex: blind.snrHex, name: blind.name } } );
+
+				if( this.enableCmdConfirmationNotification ){
+					stickObj.callback( error, { topic: "wms-vb-cmd-result-stop", payload: { error:error, snr: blind.snr, snrHex: blind.snrHex, name: blind.name } } );
+				}
 			}
 			// . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
 
 			if( blind ){
-				// Before STOP remove pending commands "blindMoveToPos"
-				privateCmdQueueRemove( stickObj, "blindMoveToPos", blind.snr );
+				// Before STOP remove allother  pending commands or blind 
+				privateCmdQueueRemove( stickObj, null/*msgType*/, blind.snr );
 				
 				privateCmdQueueEnqueue( stickObj, new wmsUtil.wmsMsgNew( "blindStopMove", blind.snr, {} ), vnBlindStopCompletion );
 				setTimeout( function() { privateCmdQueueProcess(stickObj); }, DELAY_MSG_PROC );
+
+				if( getPosOnStop ){
+					stickObj.vnBlindGetPosition( blind.snr );
+				}
 			}
 			else{
 				log.W( "vnBlindStop: Cannot find blind \""+id+"\"." );
@@ -904,7 +990,7 @@ class WmsVbStick {
 		log.T( "slatTiltOver( ("+(typeof id)+") \""+id+"\" "+diff+" )" );
 		var stickObj = this;
 		var blind = stickObj.vnBlindGet( id );
-		var newAngle = 0;
+		var newValance = 0;
 		
 		// . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
 		function vnBlindSlatTiltOverCompletion( error, wmsMsgSend, wmsMsgRcv ){
@@ -913,24 +999,26 @@ class WmsVbStick {
 			if( !error ){
 				if( wmsMsgRcv.msgType === "position" ){
 					if( !error ){
-						privateUpdateBlindPosWithCallback( blind, new VnBlindPos( wmsMsgRcv.params.position, wmsMsgRcv.params.angle ), stickObj.callback );
+						privateUpdateBlindPosWithCallback( blind, 
+							new VnBlindPos( wmsMsgRcv.params.position, wmsMsgRcv.params.valance, wmsMsgRcv.params.moving ), 
+							stickObj.callback );
 
 						// Positions: -100, -67, -33, 0, 33, 67 , 100
 						const stepWidth = 100/3; // 33.33333333333333333333333
-						newAngle = Math.round( ((Math.round(wmsMsgRcv.params.angle / stepWidth))+diff) * stepWidth );
-						newAngle = Math.max( newAngle, -100 );
-						newAngle = Math.min( newAngle, 100 );
+						newValance = Math.round( ((Math.round(wmsMsgRcv.params.valance / stepWidth))+diff) * stepWidth );
+						newValance = Math.max( newValance, 0 );
+						newValance = Math.min( newValance, 100 );
 
 
-						blind.posRequested = new VnBlindPos( wmsMsgRcv.params.position, newAngle );
+						blind.posRequested = new VnBlindPos( wmsMsgRcv.params.position, newValance, true/*moving*/ );
 						privateCmdQueueEnqueue( stickObj, new wmsUtil.wmsMsgNew( "blindMoveToPos", blind.snr, 
-																		{ pos:blind.posRequested.pos, ang:blind.posRequested.ang } ), 
+																		{ pos:blind.posRequested.pos, val:blind.posRequested.val } ), 
 																		vnBlindSlatTiltOverCompletion );
 						setTimeout( function() { privateCmdQueueProcess(stickObj); }, DELAY_MSG_PROC );
 					}
 				}
 				else{
-						privateUpdateBlindPosWithCallback( blind, blind.posRequested, stickObj.callback );
+					privateUpdateBlindPosWithCallback( blind, new VnBlindPos( blind.posCurrent.pos, blind.posCurrent.val, true/*moving*/ ), stickObj.callback );
 				}
 				
 			}

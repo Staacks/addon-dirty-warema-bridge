@@ -249,6 +249,12 @@ client.on('message', function (topic, message) {
     switch (command) {
       case 'set':
         switch (message.toString()) {
+          case 'CLOSE':
+            stickUsb.vnBlindSetPosition(device, 100, 0)
+            break;
+          case 'OPEN':
+            stickUsb.vnBlindSetPosition(device, 0, 0)
+            break;
           case 'STOP':
             stickUsb.vnBlindStop(device)
             break;
@@ -265,6 +271,18 @@ client.on('message', function (topic, message) {
         }
         break
       case 'set_valance':
+        switch (message.toString()) {
+          case 'CLOSE':
+            stickUsb.vnBlindSetPosition(device, 100, 100)
+            break;
+          case 'OPEN':
+            stickUsb.vnBlindSetPosition(device, 100, 0)
+            break;
+          case 'STOP':
+            stickUsb.vnBlindStop(device)
+            break;
+        }
+      case 'set_valance_position':
         switch (message.toString()) {
           case 'STOP':
             stickUsb.vnBlindStop(device)
