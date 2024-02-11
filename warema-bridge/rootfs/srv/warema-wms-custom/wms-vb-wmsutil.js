@@ -227,7 +227,7 @@ function decodeStickCmd( rcv ){
 						msgType = "position";
 						params.position = wmsPosHexToPercent( payload.substr(8, 2) );
 						params.angle = wmsAngleHexToPercent( payload.substr(10, 2) );
-						params.valance_1 = wmsPosHexToPercent(payload.substr(12, 2));
+						params.valance = wmsPosHexToPercent(payload.substr(12, 2));
 						params.valance_2 = wmsPosHexToPercent(payload.substr(14, 2));
 						params.moving = !(payload.substr(16, 2) === '00');
 						break;
@@ -328,7 +328,7 @@ function decodeStickCmd( rcv ){
 				params.unknown = payload.substr(0, 2);
 				params.position = wmsPosHexToPercent( payload.substr(2, 2) );
 				params.angle = wmsAngleHexToPercent (payload.substr(4, 2) );
-				params.valance_1 = wmsPosHexToPercent(payload.substr(6, 2));
+				params.valance = wmsPosHexToPercent(payload.substr(6, 2));
 				params.valance_2 = wmsPosHexToPercent(payload.substr(8, 2));
 				break;
 			case '8010':
